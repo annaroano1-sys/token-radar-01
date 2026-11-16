@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocol board</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>TOKEN RADAR</h1>
+    <p class="tag">Every pre-token protocol priced off the tokens that already trade.</p>
+  </div>
+  <div class="meta" id="meta-line">Loading board…</div>
+</header>
+
+<section class="panel model" id="model-panel">
+  <h2>How the value is fitted</h2>
+  <p class="method">Implied value is not a guess and not a list of names. It is fitted from the
+  snapshot itself: the 79 protocols whose token already trades and is worth at
+  least $1M are the comps. Their market caps are regressed in logs on TVL, on
+  how many chains they run on and whether they are on Ethereum, with a shrunk
+  offset per category. The fit is a median regression — the conditional median,
+  not the mean — because the comps' market-cap/TVL ratios spread over four
+  orders of magnitude and a few outliers would drag a least-squares fit. Age
+  and 7-day growth are deliberately not used: both were tested and neither
+  improves out-of-sample error. The fitted curve is then priced onto every
+  protocol that records no token. The whole fit is validated out of sample
+  under four different partitions, and the error is reported below, honestly —
+  no cherry-picked split.</p>
+  <dl class="fit" id="fit-line"></dl>
+  <div id="scatter"></div>
+  <p class="caveat" id="scatter-note"></p>
+  <p class="caveat">An implied value is this board's own claim about what a token would be worth
+  if the protocol's record stayed as it is. It is not a prediction that a token will
+  be issued, or when. A protocol is shown as recording no token when the snapshot
+  records none for it — it may still have one the record does not carry.</p>
+</section>
+
+<section class="controls">
+  <input id="q" type="search" placeholder="Search name or slug…" aria-label="Search">
+  <select id="cat" aria-label="Category"><option value="">All categories</option></select>
+  <select id="min-tvl" aria-label="Minimum TVL">
+    <option value="0">Any TVL</option>
+    <option value="50000000">TVL ≥ $50M</option>
+    <option value="100000000">TVL ≥ $100M</option>
+    <option value="500000000">TVL ≥ $500M</option>
+    <option value="1000000000">TVL ≥ $1B</option>
+  </select>
+  <select id="sort" aria-label="Sort by">
+    <option value="rank">Sort: rank</option>
+    <option value="value">Sort: implied value</option>
+    <option value="tvl">Sort: TVL</option>
+    <option value="growth">Sort: 7-day growth</option>
+    <option value="age">Sort: age</option>
+  </select>
+  <label class="wl"><input id="wl-only" type="checkbox"> Watchlist only</label>
+</section>
+
+<main>
+  <table id="board">
+    <thead>
+      <tr>
+        <th class="num">#</th>
+        <th>Protocol</th>
+        <th>Category</th>
+        <th class="num">TVL</th>
+        <th class="num">7d</th>
+        <th class="num">Age</th>
+        <th class="num">Implied value</th>
+        <th>Watchlist</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="count" id="count-line"></p>
+</main>
+
+<section class="panel detail" id="detail" hidden>
+  <h2 id="d-name"></h2>
+  <p class="d-sub" id="d-sub"></p>
+  <p class="d-flag" id="d-flag" hidden></p>
+  <h3>Why this value</h3>
+  <table class="breakdown">
+    <tbody id="d-break"></tbody>
+  </table>
+  <h3>How to farm it</h3>
+  <ol class="steps" id="d-steps"></ol>
+  <p class="d-note">Steps are a plan, not a promise: a farm plan earns nothing on its own, and
+  no protocol here has announced a token. Costs are typical gas and fee ranges for
+  the chain shown, at the time of the snapshot.</p>
+</section>
+
+<footer>
+  <p>Data: sealed DefiLlama snapshot, as of 2026-11-14 — 758 protocols, 40 on the
+  watchlist. Board: 200 rows. No network is used by this page; all data is local.</p>
+</footer>
+
+<script src="rows.js"></script>
+<script src="model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
