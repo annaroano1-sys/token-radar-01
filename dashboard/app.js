@@ -66,32 +66,32 @@ function secondRange(p) {
   if (p.tvl >= 1e7) return '$50-$200';
   return '$25-$100';
 }
+function tradeRange(p) {
+  if (p.tvl >= 1e9) return '$200-$500';
+  if (p.tvl >= 1e8) return '$100-$300';
+  if (p.tvl >= 1e7) return '$50-$150';
+  return '$25-$75';
+}
 function totalGas(chain) {
   if (chain === 'Ethereum') return '$12-$48';
   if (chain === 'Base' || chain === 'Arbitrum' || chain === 'Optimism' || chain === 'Unichain') return '$0.60-$3';
-  if (chain === 'Solana') return 'about $0.06';
+  if (chain === 'Solana') return '$0.06';
   if (chain === 'BSC' || chain === 'BNB Chain') return '$0.60-$1.80';
   if (chain === 'Polygon' || chain === 'Avalanche') return '$1.20-$6';
   return '$3-$12';
 }
 function stepDeposit(p) {
-  return 'Deposit ' + depositRange(p) + ' of a blue-chip asset (ETH or a major stablecoin) into ' + p.name + ' on ' + p.chains[0] + '; with TVL ' + fmtUsd(p.tvl) + ' it is ' + tvlTier(p) + ', so expect ' + gasRange(p.chains[0]) + ' in gas and 15-30 minutes for the deposit to confirm.';
-}
-function stepHold(p) {
-  return 'Hold the position for at least 30 days without withdrawing; airdrops, if any, typically reward sustained use over 1-3 months, not a single deposit, so set a weekly reminder to check it.';
-}
-function stepRepeat(p) {
-  return 'Repeat a small transaction (deposit, swap or claim) once a week for 4 weeks on ' + p.chains[0] + '; budget ' + gasRange(p.chains[0]) + ' per transaction in gas for the month and keep the transaction hashes as proof.';
+  return 'Day 1 — Deposit ' + depositRange(p) + ' of a blue-chip asset (ETH or a major stablecoin) into ' + p.name + ' on ' + p.chains[0] + '; with TVL ' + fmtUsd(p.tvl) + ' it is ' + tvlTier(p) + ', so expect ' + gasRange(p.chains[0]) + ' in gas and 15-30 minutes for the deposit to confirm.';
 }
 function stepSecondMarket(p) {
   if (p.chains.length === 1) {
-    return 'Use a second market the protocol lists on ' + p.chains[0] + ' (TVL ' + fmtUsd(p.tvl) + ') for 14 days to show repeat activity; a second deposit of ' + secondRange(p) + ' costs another ' + gasRange(p.chains[0]) + ' in gas.';
+    return 'Day 14 — Use a second market the protocol lists on ' + p.chains[0] + ' (TVL ' + fmtUsd(p.tvl) + ') for 14 days to show repeat activity; a second deposit of ' + secondRange(p) + ' costs another ' + gasRange(p.chains[0]) + ' in gas.';
   }
   var other = p.chains[1];
-  return 'Use a second market the protocol lists — it runs on ' + chainList(p) + ' — starting with ' + other + ' (TVL ' + fmtUsd(p.tvl) + ') for 14 days to show multi-market activity; a second deposit of ' + secondRange(p) + ' costs another ' + gasRange(other) + ' in gas.';
+  return 'Day 14 — Use a second market the protocol lists — it runs on ' + chainList(p) + ' — starting with ' + other + ' (TVL ' + fmtUsd(p.tvl) + ') for 14 days to show multi-market activity; a second deposit of ' + secondRange(p) + ' costs another ' + gasRange(other) + ' in gas.';
 }
 function stepTrack(p) {
-  return 'Track ' + p.name + ' weekly for 6-8 weeks: record your deposits, points or volume in a note, and watch the protocol\'s announcements for a points program or snapshot date.';
+  return 'Weeks 5–8 — Track ' + p.name + ' weekly: record your deposits, points or volume in a note, and watch the protocol\'s announcements for a points program or snapshot date.';
 }
 function stepTotal(p) {
   return 'Total for this plan: about 6-8 weeks and roughly ' + totalGas(p.chains[0]) + ' in gas on ' + p.chains[0] + '; the capital you put in stays yours to withdraw — the gas is the real cost of farming it.';
@@ -116,6 +116,8 @@ function verdictStep(p) {
   var lowRatio = p.value / MODEL.oos_median_factor / gasHighNum(p.chains[0]);
   var age = fmtAge(p.age);
   var v = verdictFor(p);
+  var gn = gasHighNum(p.chains[0]);
+  var be = gn < 1 ? '$' + gn.toFixed(2) : fmtUsd(gn);
   if (v === 'LONG WAIT') {
     return 'Verdict: LONG WAIT — ' + p.name + ' has run ' + age + ' with no token, one of the longest waits on the board, so a token, if it ever comes, is not near. The implied value is ' + fmtUsd(p.value) + ' (' + fmtUsd(p.value / MODEL.oos_median_factor) + ' at the low end) and the plan costs about ' + gas + ' in gas; farm it only if you already use it.';
   }
@@ -124,7 +126,7 @@ function verdictStep(p) {
     : 'Only farm it if you already use it; the gas and the wait are real next to the prize.';
   return 'Verdict: ' + v + ' — the whole plan costs about ' + gas + ' in gas on ' + p.chains[0]
     + ' against a ' + fmtUsd(p.value) + ' implied value (' + fmtRatio(ratio) + ' the cost, ' + fmtRatio(lowRatio)
-    + ' at the low end)' + (v === 'THIN' ? ', the lowest ratio on the board,' : '')
+    + ' at the low end); break-even is any airdrop above ' + be + (v === 'THIN' ? ', the lowest ratio on the board,' : '')
     + ', and ' + p.name + ' has run ' + age + ' with no token. ' + tail;
 }
 // The launch clock, identical to main.ts: the snapshot's own token-share by age cohort.
@@ -138,7 +140,6 @@ function clockBucketIndex(p) {
   return 5;
 }
 function clockRate(p) {
-  if (p.noDate) return '—';
   var c = MODEL.clock[clockBucketIndex(p)];
   return Math.round(100 * c[3] / c[2]) + '%';
 }
@@ -161,9 +162,9 @@ function farmSteps(p) {
   var cat = p.category || '';
   if (cat === 'Basis Trading') {
     return [
-      'Open a delta-neutral basis position on ' + p.name + ': deposit ' + depositRange(p) + ' on ' + p.chains[0] + ' and short that notional in perps; the funding rate — not the price — is the harvest, roughly $0.50-$3 per $100 per week when funding is positive.',
-      'Hold the basis for at least 30 days through funding cycles; funding flips sign, so one week proves nothing — record each funding payment and net carry weekly.',
-      'Close half after 14 days if funding stays negative a full week; each close costs ' + gasRange(p.chains[0]) + ' in gas, and a 30-day basis history beats a single day.',
+      'Day 1 — Open a delta-neutral basis position on ' + p.name + ': deposit ' + depositRange(p) + ' on ' + p.chains[0] + ' and short that notional in perps; the funding rate — not the price — is the harvest, roughly $0.50-$3 per $100 per week when funding is positive.',
+      'Days 1–30 — Hold the basis through funding cycles; funding flips sign, so one week proves nothing — record each funding payment and net carry weekly.',
+      'Day 14 — Close half if funding stays negative a full week; each close costs ' + gasRange(p.chains[0]) + ' in gas, and a 30-day basis history beats a single day.',
       stepSecondMarket(p),
       stepTrack(p),
       stepTotal(p),
@@ -174,8 +175,8 @@ function farmSteps(p) {
   if (cat === 'Lending' || cat === 'CDP' || cat === 'Leveraged Farming' || cat === 'Collateral Management') {
     return [
       stepDeposit(p),
-      'Borrow 30-50% of your collateral value in a stablecoin and hold the loan for at least 14 days; interest accrues daily, roughly $0.30-$1.50 per $100 borrowed per month at current rates.',
-      'Repay the loan in two tranches a week apart and re-deposit the repaid collateral to keep your health factor above 1.5; each repayment costs ' + gasRange(p.chains[0]) + ' in gas on ' + p.chains[0] + '.',
+      'Days 1–14 — Borrow 30-50% of your collateral value in a stablecoin and hold the loan for at least 14 days; interest accrues daily, roughly $0.30-$1.50 per $100 borrowed per month at current rates.',
+      'Days 14–21 — Repay the loan in two tranches a week apart and re-deposit the repaid collateral to keep your health factor above 1.5; each repayment costs ' + gasRange(p.chains[0]) + ' in gas on ' + p.chains[0] + '.',
       stepSecondMarket(p),
       stepTrack(p),
       stepTotal(p),
@@ -185,9 +186,9 @@ function farmSteps(p) {
   }
   if (cat === 'Dexs' || cat === 'Liquidity Manager') {
     return [
-      'Swap ' + depositRange(p) + ' through ' + p.name + ' on ' + p.chains[0] + ' in 3-4 trades over two weeks; each swap costs ' + gasRange(p.chains[0]) + ' in gas plus the pool fee, and every trade counts as activity.',
-      'Provide ' + depositRange(p) + ' of liquidity to the protocol\'s deepest pool for at least 30 days; expect ' + gasRange(p.chains[0]) + ' in gas to add it and the same again to remove it, plus impermanent loss of a few percent either way.',
-      'Leave the LP position untouched for the full month, then claim any trading fees (usually $1-$10 on a $200 position) before withdrawing; do not exit in the first week.',
+      'Days 1–14 — Swap ' + depositRange(p) + ' through ' + p.name + ' on ' + p.chains[0] + ' in 3-4 trades over two weeks; each swap costs ' + gasRange(p.chains[0]) + ' in gas plus the pool fee, and every trade counts as activity.',
+      'Day 14 — Provide ' + depositRange(p) + ' of liquidity to the protocol\'s deepest pool for at least 30 days; expect ' + gasRange(p.chains[0]) + ' in gas to add it and the same again to remove it, plus impermanent loss of a few percent either way.',
+      'Day 44 — Leave the LP position untouched for the full month, then claim any trading fees (usually $1-$10 on a $200 position) before withdrawing; do not exit in the first week.',
       stepSecondMarket(p),
       stepTrack(p),
       stepTotal(p),
@@ -198,8 +199,8 @@ function farmSteps(p) {
   if (cat === 'Yield' || cat === 'Yield Aggregator' || cat === 'Risk Curators' || cat === 'Onchain Capital Allocator' || cat === 'Restaking' || cat === 'Staking Pool') {
     return [
       stepDeposit(p),
-      'Keep the deposit in the vault for at least 30 days and let the yield compound; withdrawing early usually forfeits the points or multiplier the vault tracks.',
-      'Add a second deposit of ' + secondRange(p) + ' after two weeks to show continued use; the top-up costs ' + gasRange(p.chains[0]) + ' in gas on ' + p.chains[0] + '.',
+      'Days 1–30 — Keep the deposit in the vault and let the yield compound; withdrawing early usually forfeits the points or multiplier the vault tracks.',
+      'Day 14 — Add a second deposit of ' + secondRange(p) + ' to show continued use; the top-up costs ' + gasRange(p.chains[0]) + ' in gas on ' + p.chains[0] + '.',
       stepSecondMarket(p),
       stepTrack(p),
       stepTotal(p),
@@ -209,9 +210,9 @@ function farmSteps(p) {
   }
   if (cat === 'Derivatives' || cat === 'Options' || cat === 'Prediction Market') {
     return [
-      'Open a small position of $50-$150 on ' + p.name + ' (' + p.chains[0] + ') and hold it for at least 7 days; funding or fees run roughly $0.50-$3 per week on a position this size.',
-      'Place 3-5 trades of $25-$75 each over two weeks instead of one large trade; spread-out volume is what farming trackers usually count, and total fees stay under $10.',
-      'Close half the position after 14 days and keep the rest open for another two weeks; each close costs ' + gasRange(p.chains[0]) + ' in gas, and a 30-day trading history beats a single day.',
+      'Day 1 — Open a position of ' + tradeRange(p) + ' on ' + p.name + ' (' + p.chains[0] + ') and hold it for at least 7 days; funding or fees run roughly $0.50-$3 per week on a position this size.',
+      'Days 1–14 — Place 3-5 trades of ' + tradeRange(p) + ' each over two weeks instead of one large trade; spread-out volume is what farming trackers usually count, and total fees stay under $10.',
+      'Day 14 — Close half the position and keep the rest open for another two weeks; each close costs ' + gasRange(p.chains[0]) + ' in gas, and a 30-day trading history beats a single day.',
       stepSecondMarket(p),
       stepTrack(p),
       stepTotal(p),
@@ -221,9 +222,9 @@ function farmSteps(p) {
   }
   if (cat === 'RWA') {
     return [
-      'Buy ' + depositRange(p) + ' of the protocol\'s tokenized asset on ' + p.chains[0] + ' and hold it for at least 30 days; purchase fees are usually 0.1-0.5% and gas ' + gasRange(p.chains[0]) + '.',
-      'Keep the position through one full yield payout cycle (typically monthly) and reinvest the payout; the cycle length is the honest minimum holding time.',
-      'If the protocol offers a secondary market, make one small buy and one small sell a month apart to show real usage; budget ' + gasRange(p.chains[0]) + ' per transaction in gas for both.',
+      'Day 1 — Buy ' + depositRange(p) + ' of the protocol\'s tokenized asset on ' + p.chains[0] + ' and hold it for at least 30 days; purchase fees are usually 0.1-0.5% and gas ' + gasRange(p.chains[0]) + '.',
+      'Days 1–30 — Keep the position through one full yield payout cycle (typically monthly) and reinvest the payout; the cycle length is the honest minimum holding time.',
+      'Day 30 — If the protocol offers a secondary market, make one small buy now and one small sell a month later to show real usage; budget ' + gasRange(p.chains[0]) + ' per transaction in gas for both.',
       stepSecondMarket(p),
       stepTrack(p),
       stepTotal(p),
@@ -233,8 +234,8 @@ function farmSteps(p) {
   }
   return [
     stepDeposit(p),
-    'Use the protocol\'s main feature on ' + p.chains[0] + ' at least once a week for a month (a swap, a deposit or a claim of $25-$100 each time); total gas for the month is about four transactions at ' + gasRange(p.chains[0]) + ' each.',
-    'Try a second feature the protocol offers, such as staking, voting or a points quest, and complete it fully; a finished quest is worth more than three half-finished ones.',
+    'Days 1–30 — Use the protocol\'s main feature on ' + p.chains[0] + ' at least once a week for a month (a swap, a deposit or a claim of ' + tradeRange(p) + ' each time); total gas for the month is about four transactions at ' + gasRange(p.chains[0]) + ' each.',
+    'Day 14 — Try a second feature the protocol offers, such as staking, voting or a points quest, and complete it fully; a finished quest is worth more than three half-finished ones.',
     stepSecondMarket(p),
     stepTrack(p),
     stepTotal(p),
@@ -369,7 +370,7 @@ function fillModel() {
   var parts = MODEL.oos_partitions || {};
   function range(key) {
     var vals = [];
-    ['mod5', 'blocks', 'fold10', 'hash'].forEach(function (k) {
+    ['mod5', 'blocks', 'fold10', 'hash', 'loo'].forEach(function (k) {
       if (parts[k]) vals.push(parts[k][key]);
     });
     if (!vals.length) return '';
@@ -377,20 +378,22 @@ function fillModel() {
   }
   var ts = MODEL.time_split || {};
   var bs = MODEL.bootstrap || {};
+  var wf = MODEL.wf || [];
+  var wfText = wf.length ? ' Walk-forward backtest (train before the year, test the next): pooled ×' + wf[0].toFixed(2) + '/×' + wf[1].toFixed(2) + ' (' + wf[2].map(function (w) { return w[0] + ' ×' + w[3].toFixed(2); }).join(', ') + ' median).' : '';
   document.getElementById('formula-line').textContent = formula;
   var w = MODEL.oos_within || {};
   document.getElementById('oos-line').innerHTML =
-    'Out-of-sample (5-fold, ' + MODEL.oos_n + ' held-out comps): median error <b>×' + MODEL.oos_median_factor.toFixed(2)
+    'Blind out-of-sample (5-fold, ' + MODEL.oos_n + ' held-out comps): median error <b>×' + MODEL.oos_median_factor.toFixed(2)
     + '</b> · ' + (w.x2 || 0) + '% within ×2 · p80 ×' + MODEL.oos_p80_factor.toFixed(2);
   document.getElementById('fit-line').innerHTML =
     '<dt>Comps</dt><dd>' + MODEL.n_comps + ' protocols with a token (market cap ≥ $1M; 13 dead or micro-cap records below $1M are not comparables)</dd>'
     + '<dt>Fit</dt><dd>' + esc(formula) + '</dd>'
     + '<dt>Method</dt><dd>median regression (least absolute deviations, IRLS)</dd>'
-    + '<dt>Not used</dt><dd>protocol age and 7-day TVL change — neither improves out-of-sample error</dd>'
+    + '<dt>Not in the formula</dt><dd>age and 7-day growth — both tested, both worse out-of-sample (×2.44 and ×2.41 vs ×2.28); age drives the launch clock and the LONG WAIT verdict instead</dd>'
     + '<dt>Out-of-sample</dt><dd>median error ×' + MODEL.oos_median_factor.toFixed(2)
     + ', p80 ×' + MODEL.oos_p80_factor.toFixed(2) + ' (' + MODEL.oos_n + ' held-out comps, 5-fold); '
     + (w.x2 || 0) + '% within ×2, ' + (w.x5 || 0) + '% within ×5, ' + (w.x10 || 0) + '% within ×10</dd>'
-    + '<dt>Stability</dt><dd>same procedure under 4 different partitions: median ' + range('median') + ', p80 ' + range('p80') + ' — no cherry-picked split. Time-split (train before ' + ts.cut + ', test the ' + ts.n + ' later ones): ×' + ts.fwd_median.toFixed(2) + '/×' + ts.fwd_p80.toFixed(2) + '; reverse ×' + ts.rev_median.toFixed(2) + '/×' + ts.rev_p80.toFixed(2) + '. Bootstrap (200×): TVL slope ' + bs.slope_lo.toFixed(2) + '–' + bs.slope_hi.toFixed(2) + '; OOS median ×' + bs.oos_lo.toFixed(2) + '–×' + bs.oos_hi.toFixed(2) + ' (90% intervals)</dd>';
+    + '<dt>Stability</dt><dd>same procedure under 5 different partitions incl. leave-one-out: median ' + range('median') + ', p80 ' + range('p80') + ' — no cherry-picked split. Time-split (train before ' + ts.cut + ', test the ' + ts.n + ' later ones): ×' + ts.fwd_median.toFixed(2) + '/×' + ts.fwd_p80.toFixed(2) + '; reverse ×' + ts.rev_median.toFixed(2) + '/×' + ts.rev_p80.toFixed(2) + '. Bootstrap (200×): TVL slope ' + bs.slope_lo.toFixed(2) + '–' + bs.slope_hi.toFixed(2) + '; OOS median ×' + bs.oos_lo.toFixed(2) + '–×' + bs.oos_hi.toFixed(2) + ' (90% intervals)' + wfText + '</dd>';
   document.getElementById('meta-line').textContent =
     MODEL.n_board + ' rows · ' + MODEL.n_watchlist + '/' + MODEL.n_watchlist + ' watchlist · '
     + 'snapshot ' + MODEL.as_of + ' · ' + MODEL.n_comps + ' comps';
