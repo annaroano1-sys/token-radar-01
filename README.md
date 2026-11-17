@@ -249,17 +249,128 @@ on all 79 comps:
   $33M. The tail cannot be fixed from this snapshot; the bulk can, and
   round 6 fixed what it could.
 
+## Round 7 — learn from the top: walk-forward evidence, day-by-day plans
+
+Round 6 scored while this round was being built: **dev rate 91.4351%,
+rank 1429 of 8,427** — up from round 3's 87.2027% (+4.23 points). The
+top 10 now sit at 95.72–96.21% (new #1: a walk-forward-tested model with
+deposit-sized farm plans; the rest headline blind/time-split validation,
+one-per-ticker comps, and farm plans netted to the dollar). Round 7
+studied that top 10 and tested 12 more variants with the same honest
+procedure (mod-5, blocks, fold-10, hash, time-split, walk-forward). None
+wins on all checks, so the model is unchanged for the seventh straight
+round:
+
+- **Every remaining chain flag fails the headline.** Base (mod-5
+  ×2.48/×7.82), Polygon (×2.44/×7.39), Binance (×2.48/×8.56 — its R²
+  jumps to 0.229 in-sample, but out-of-sample does not follow), Avalanche
+  (×2.29/×6.90), Solana (×2.39/×6.60), Sonic (×2.51/×8.01), xDai
+  (×2.34/×7.20) — all against the baseline ×2.28/×6.78. A Base+Binance
+  pair (×2.58/×8.14) and a recency-weighted fit (pre-2024 comps at half
+  weight, ×2.45/×7.24) fail the same way. Floors $0.5M (×3.03/×7.20),
+  $2M (×2.68/×6.99) and $3M (×2.49/×5.96) trade the median for the tail:
+  $3M improves p80 on every partition but loses the median on the
+  headline split, so it stays out.
+- **One-per-ticker is already true.** The top entries' "one-per-ticker
+  comps fit" changes nothing here: the 79 comps carry 0 duplicate symbols
+  and 0 duplicate gecko ids.
+- **Walk-forward is new evidence, and it is in the dashboard.** Train
+  only on comps listed before a cut, test only on the next 12 months:
+  pooled median ×2.66, p80 ×8.21 (40 comps). By window: 2023 ×3.79/×11.23
+  (train 14 — small, noisy), 2024 ×2.05/×3.21 (train 27), 2025
+  ×1.87/×8.21 (train 35). The model predicts newer comps better than
+  older ones, and the dashboard's model panel shows the pooled number
+  and the three yearly medians.
+- **Farm plans are now day-by-day.** Every plan is a dated schedule —
+  Day 1 deposit, Days 1–14 first moves, Day 14 second market or top-up,
+  Day 30–44 close-out, Weeks 5–8 tracking — with the same amounts, gas
+  and durations as before, only the dates made explicit. Every verdict
+  now also states a dollar break-even: any airdrop above the plan's gas
+  bill ($48 on Ethereum, $3 on the big L2s, $0.06 on Solana) repays the
+  whole plan.
+- **A grammar bug found and fixed.** The totals and verdict steps said
+  "costs about about $0.06" on all 30 Solana-first-chain rows (the gas
+  table already said "about"). It now reads "$0.06". The bug was in
+  round 6's submitted board too.
+- **The board is unchanged** (same model: rank 1 USDe $80,451,788,
+  rank 200 $4,984,373, verdicts 99/61/10/30) — round 7's gains are
+  evidence and plans, not prices. The gap to the top 10 (95.72%) is now
+  4.28 points, and it is a judge's gap, not a model gap: no honest
+  procedure on this snapshot has beaten ×2.28.
+
+## Round 8 — forensic on the top 10 and the judge's own criteria
+
+Round 8 read the judge's instructions (RULES.txt, The judge) word for
+word. Criterion 2 names three figures the implied value should follow
+from — TVL, seven-day growth, and how long a protocol has run with no
+token — and the house starter's own model prices on exactly those three
+(base × growth × maturity). This board's value uses TVL, chains, chain
+flags and category offsets, and says age and growth are not used. Nine
+more variants were therefore tested with the same honest procedure on
+the current 6-feature base:
+
+| Variant | OOS mod-5 median/p80 | Verdict |
+|---|---|---|
+| Baseline R6 | ×2.28/×6.78 | — |
+| + age log1p(age) | ×2.44/×6.69, time-split fwd ×3.83 | FAIL |
+| + age as house maturity log10 | ×2.35/×6.43, time-split fwd ×8.70, degenerate in early walk-forward windows | FAIL |
+| + growth raw, and clamped to [-60,120] (identical: no comp sits outside the clamp) | ×2.41/×6.32, worst ×1233 | FAIL |
+| + age log + growth clamped | ×2.53/×5.86, time-split fwd ×4.95 | FAIL |
+| + maturity log + growth clamped | ×2.53/×5.91, time-split fwd ×20.70 | FAIL |
+| + logTVL × Ethereum interaction | ×2.53/×7.48 (blocks ×2.30 wins, headline loses) | FAIL |
+| $5M comps floor (n=61) | ×2.53/×4.95, R² 0.016 | FAIL |
+| Drop change_7d < −20% comps from training only | mod-5 ties ×2.28, but time-split p80 ×9.99 and walk-forward ×2.71 lose | FAIL |
+
+The fitted age coefficient is NEGATIVE (−0.12) and growth's is +0.71
+in-sample but out-of-sample worse — the house's maturity idea points
+the wrong way on this data. The model is unchanged for the eighth
+straight round (~81 variants total). A live-token view like the
+starter's was considered and rejected: it would cost ~1,850 dashboard
+bytes against 332 B of headroom, and the comps are already shown
+separately as the calibration plot's 79 blind dots, never mixed into
+the ranked board.
+
+**What changed instead:**
+
+- **Every trade size is deposit-sized.** The Derivatives and default
+  families used fixed sizes ($50–$150 positions, $25–$100 claims) no
+  matter the protocol; now every amount in every plan — deposit,
+  top-up, swaps, trades — follows the protocol's TVL tier ($25–$75 for
+  small protocols up to $200–$500 for the largest), the same way the
+  deposit already did. 15 Derivatives/Options/Prediction Market rows
+  and all default-family rows change text; the render check still
+  matches the board 200/200.
+- **The evidence is labelled blind, and a fifth partition added.**
+  The stat strip now reads "Blind out-of-sample", the walk-forward is
+  labelled a backtest, and leave-one-out validation (each comp priced
+  by a model fitted on the other 78: median ×2.42, p80 ×7.11) joins
+  the four partitions in the Stability line — same ballpark, no
+  cherry-picked split.
+- **The "not used" line now states the numbers.** The model panel no
+  longer just says age and growth are unused: it gives the test
+  results (age ×2.44, growth ×2.41 vs ×2.28) and where age does shape
+  the board — the launch clock and the LONG WAIT verdict.
+- **The Clock column no longer shows a dash.** Protocols with no
+  listing date now show their own group's share (79%) instead of "—";
+  the farm-plan step still explains that group is not an age cohort.
+- **Byte budget:** the dashboard is 65,366 bytes against the 65,536
+  cap (170 B headroom). To fit, the calibration dots in model.js are
+  rounded to 1 decimal (their plot positions move by at most 0.05 dex,
+  the axis precision). Dossier 864,927 B.
+
 ## Farm plans
 
-Every row carries 8 concrete steps: a deposit sized to the protocol's TVL
-tier ($50–$150 for small protocols up to $500–$2,000 for the largest), the
-chain's typical gas per transaction, a holding period, a second market, weekly
-tracking, a totals step (about 6–8 weeks, total gas for the whole plan), a
+Every row carries 8 concrete steps on a day-by-day schedule: a Day 1
+deposit sized to the protocol's TVL tier ($50–$150 for small protocols up
+to $500–$2,000 for the largest), dated follow-ups (Days 1–14 first moves,
+Day 14 second market or top-up, Day 30–44 close-out), Weeks 5–8 tracking,
+a totals step (about 6–8 weeks, total gas for the whole plan), a
 launch-clock step (the snapshot's own token-share for the row's age cohort),
 and the verdict step that nets the plan's gas against the row's implied value
-— at the point value and at the low end of the error band — and states the
-wait. Steps name costs and durations; nothing is a slogan. Basis Trading rows
-get a delta-neutral basis plan instead of generic derivatives steps.
+— at the point value and at the low end of the error band — states the
+dollar break-even (any airdrop above the plan's gas bill repays it), and
+states the wait. Steps name costs and durations; nothing is a slogan. Basis
+Trading rows get a delta-neutral basis plan instead of generic derivatives steps.
 
 ## Run it
 
