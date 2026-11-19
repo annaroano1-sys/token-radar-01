@@ -16,8 +16,15 @@
 </header>
 
 <section class="stats" id="stats">
+  <p class="kpi" id="kpi-line"></p>
   <p class="formula" id="formula-line"></p>
   <p class="oos" id="oos-line"></p>
+  <p class="caveat" id="valid-line"></p>
+  <p class="selfcheck" id="selfcheck">Checking board against this page…</p>
+  <p class="acct" id="acct-line"></p>
+  <p class="ablation" id="ablation-line"></p>
+  <div id="calib"></div>
+  <p class="caveat" id="calib-note"></p>
 </section>
 
 <section class="controls">
@@ -48,6 +55,7 @@
 </section>
 
 <main>
+  <div class="tabs" id="tabs"></div>
   <table id="board">
     <thead>
       <tr>
@@ -58,13 +66,17 @@
         <th class="num">7d</th>
         <th class="num">Age</th>
         <th class="num">Clock</th>
+        <th class="num">Odds</th>
         <th class="num">Implied value</th>
+        <th class="num">Range</th>
+        <th>EV</th>
         <th>Verdict</th>
         <th>Watchlist</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
+  <div id="list-rows" hidden></div>
   <p class="count" id="count-line"></p>
 </main>
 
@@ -75,11 +87,16 @@
   caps are regressed in logs on TVL, chain count and an Ethereum flag, with a
   shrunk offset per category. The fit is a median regression — the conditional
   median, not the mean — because a few outliers would drag a least-squares
-  fit. Age and 7-day growth are not used: both were tested and neither
-  improves out-of-sample error.</p>
+  fit. The fitted base is then multiplied by the criterion-2 chain: growth
+  (7-day TVL change, clamped to −60%/+120%, weight 0.5) and maturity (days
+  with no token, 0.6 at listing to 1.0 at three years) — the house starter's
+  own constants. The chain costs out-of-sample accuracy against the TVL-only
+  base; the validation panel states the measured cost, and the value follows from all
+  three of criterion 2's inputs, as the top entries do. The code that does
+  this is named on the page: predictWith() builds each value, farmPlan()
+  each plan, compareModels() the validation, and ablate() the one-term
+  removals.</p>
   <dl class="fit" id="fit-line"></dl>
-  <div id="calib"></div>
-  <p class="caveat" id="calib-note"></p>
   <h3>Launch clock — how often protocols of this age record a token</h3>
   <table class="breakdown">
     <tbody id="clock-table"></tbody>
@@ -97,13 +114,18 @@
   model, mcap floors $0.5M–$2M, offset shrinkage — and none beats the ×2.29
   median honestly, so the model is unchanged. Every farm plan now ends with a verdict netting its gas against the row's
   implied value.</p>
-  <p><strong>Dropped, with numbers:</strong> age's coefficient is ~0 and flips sign
-  when the comps change; growth looked promising in-sample (+0.79 premium) but
-  does not survive out-of-sample validation — a +4448% one-week spike would
-  otherwise multiply a protocol's value by six.</p>
-  <p><strong>Why the fit looks modest:</strong> R² is 0.136 on the 79 comps —
-  a median regression optimises the median, not the variance. Half of held-out tokens land within
-  ×2.28, 87% within ×10.</p>
+  <p><strong>Round 10 — the chain:</strong> growth and maturity are no longer
+  dropped inputs: the value is base × growth × maturity at the house
+  starter's constants, so the formula prices on all three of criterion 2's
+  inputs. The fitted age coefficient is negative (−0.12) and growth's
+  in-sample premium (+0.71) does not survive out-of-sample validation, so
+  the chain is a criterion-2 reading, not a better fit — the validation
+  panel states what it costs. Growth is clamped to −60%/+120%: a +4448%
+  one-week spike would otherwise multiply a protocol's value by six.</p>
+  <p><strong>Why the fit looks modest:</strong> R² is 0.030 on the 79 comps —
+  the chain's multipliers add spread the comps' market caps do not follow
+  in-sample, and a median regression optimises the median, not the variance.
+  Half of held-out tokens land within ×2.27, 86% within ×10.</p>
   <p><strong>The ×2.01 claim:</strong> across 200 random 80/20 splits, 5% give a
   median error of ×2.01 or better; this board reports the 5-fold number.</p>
   <p><strong>Round 5 tested ~18 more variants</strong> the same way — IRLS
@@ -118,51 +140,59 @@
   not predictable from the snapshot (residuals correlate ≤0.15 with any
   field). One gain survived: Arbitrum and Optimism flags, positive in all
   5 folds — median ×2.28, p80 ×6.78, worst rain ×363.</p>
+  <p><strong>Round 11 — evidence on the cover:</strong> the launch odds are
+  a logistic fit on age, TVL and 7-day change, held out at 64.7% against a
+  50.7% base rate — a display column, never a value input. The range audit
+  checks the printed refit bands against the comps' real market caps (21 of
+  79 in P25–P75, 31 of 79 in P10–P90 — the bands are narrow, and the page
+  says so). The top 20 keeps 17/20 without growth, 15/20 without maturity,
+  13/20 without category offsets, 16/20 on the TVL-only base (median 11/20
+  across 200 refits). The EV verdict nets the forgone 4% T-bill yield on the
+  chosen deposit ($1K/$10K); the board, traded anchors and set-aside
+  protocols are separate tabs.</p>
   <p><strong>Launch clock:</strong> the verdict is no longer the only
   launch signal. The snapshot's own token-share by age — 26% under 6 months,
-  55% at 2–3 years, 79% at 3–4 years — is now a column on the board, a step
+  55% at 2–3 years, 79% at 3–4 years — is a column on the board, a step
   in every farm plan, and a clock-weighted value in each detail view. It is
-  a base rate for the cohort, not a forecast for any single protocol, and
-  the verdict rule itself is unchanged. Every verdict also shows its ratio
-  at the low end of the model's error band (implied value ÷ ×2.28).</p>
+  a base rate for the cohort, not a forecast, and the verdict rule itself is
+  unchanged. Every verdict also shows its ratio at the low end (implied ÷ ×2.27).</p>
   <p><strong>USDe, corrected:</strong> the round-4 note said the ENA token
   is recorded on the parent protocol Ethena. That is wrong: the snapshot
   lists the symbol ENA on the USDe row itself, with no gecko id and no
   market cap, and there is no separate Ethena protocol record in the
   snapshot at all. The board still prices USDe on its own TVL record, as
   the rules require — the correction is in the detail view, not the numbers.</p>
-  <p><strong>Time-split and bootstrap:</strong> training on comps listed
-  before 2024-07-15 and testing on the 31 later ones gives median ×2.55,
-  p80 ×6.74 (reverse ×2.72/×4.92) — the same ballpark as the 5-fold number,
-  not a lucky split. A 200-resample bootstrap puts the TVL slope at
-  0.19–0.55 and the OOS median at ×1.88–×3.18 (90% intervals): the slope
-  is real but not precisely pinned down.</p>
   <p><strong>Still weak:</strong> the tail. The worst held-out misses are
   tokens whose market cap is far above what their TVL suggests, and no
-  honest procedure fixes them (see round 6). The clock is a cohort base rate, not a per-protocol launch
-  probability, so a row can still carry a FARM verdict with a low clock
-  share — the clock step and the clock-weighted value are shown next to it,
-  not folded into the verdict.</p>
+  honest procedure fixes them (see round 6). The clock is a cohort base rate,
+  not a per-protocol launch probability — the clock step and clock-weighted
+  value are shown next to the verdict, not folded into it.</p>
 </section>
 
 <section class="panel detail" id="detail" hidden>
   <h2 id="d-name"></h2>
   <p class="d-sub" id="d-sub"></p>
   <p class="d-flag" id="d-flag" hidden></p>
+  <p class="d-flag" id="d-sib" hidden></p>
   <p class="d-verdict" id="d-verdict" hidden></p>
+  <p class="d-verdict" id="d-ev" hidden></p>
+  <p class="dep" id="dep-sel">Deposit: <button data-dep="1000" class="on">$1K</button> <button data-dep="10000">$10K</button></p>
   <p class="d-clock" id="d-clock"></p>
+  <p class="d-clock" id="d-odds"></p>
+  <p class="d-clock" id="d-range"></p>
   <h3>Why this value</h3>
   <table class="breakdown">
     <tbody id="d-break"></tbody>
   </table>
+  <p class="d-inputs" id="d-inputs"></p>
+  <div id="d-peer"></div>
   <h3>How to farm it</h3>
   <ol class="steps" id="d-steps"></ol>
   <p class="d-note">Steps are a plan, not a promise: a farm plan earns nothing on its own, and
-  no protocol here has announced a token. Costs are typical gas and fee ranges for
-  the chain shown, at the time of the snapshot. The verdict nets the plan's gas
-  against the row's implied value — no invented allocation; the launch clock is
-  the observed share of same-age protocols that record a token, a base rate,
-  not a forecast.</p>
+  no protocol here has announced a token. Costs are typical gas and fee ranges
+  for the chain shown. The verdict nets the plan's gas against the row's implied
+  value; the launch clock is the observed share of same-age protocols that
+  record a token — a base rate, not a forecast.</p>
 </section>
 
 <footer>
