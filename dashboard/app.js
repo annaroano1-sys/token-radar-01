@@ -3,14 +3,22 @@
 // (rows.js, model.js); the page makes no network request of any kind.
 
 var MODEL = window.TOKEN_RADAR_MODEL;
-var ROWS = window.TOKEN_RADAR_ROWS.map(function (r) {
+// The raw compact rows, kept for the self-check: the page re-hashes exactly
+// the data the build wrote and compares it with the fingerprint in model.js.
+var RAW_ROWS = window.TOKEN_RADAR_ROWS;
+var ROWS = RAW_ROWS.map(function (r) {
   return {
     slug: r[0], name: r[1], category: r[2] === null ? null : MODEL.categories[r[2]],
     chains: r[3].split(','), tvl: r[4],
     change: r[5], age: r[6], value: r[7], rank: r[8], watchlist: r[9] === 1,
     base: r[10], catMult: r[11], chainMult: r[12], nChains: r[13], noDate: r[14],
+    range: [r[15], r[16], r[17], r[18], r[19]],
+    peer: { slug: r[20], logTvl: r[21], logMcap: r[22], logPred: r[23] },
+    growthMult: r[24], maturityMult: r[25], odds: r[26],
   };
 });
+// The traded anchors and set-aside protocols for the tabs (rows.js).
+var LISTS = window.TOKEN_RADAR_LISTS || { traded: [], setAside: [] };
 
 // --- formatting
 
@@ -158,7 +166,63 @@ function clockStep(p) {
   }
   return 'Launch clock: ' + has + ' of ' + n + ' protocols listed ' + label + ' record a token (' + rate + '%) — ' + p.name + ' is ' + age + ' old, in that cohort.';
 }
-function farmSteps(p) {
+// --- self-check + expected value (round 9)
+
+// FNV-1a, identical to main.ts: the page re-hashes the compact rows it
+// rendered and compares the fingerprint with the one the build wrote.
+function fnv1a(s) {
+  var h = 0x811c9dc5;
+  for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return ('0000000' + (h >>> 0).toString(16)).slice(-8);
+}
+function selfCheck() {
+  var el = document.getElementById('selfcheck');
+  if (!el || !MODEL.rows_fnv) return;
+  var sum = fnv1a(JSON.stringify(RAW_ROWS));
+  var ok = sum === MODEL.rows_fnv;
+  var r1 = ROWS[0];
+  var wl = ROWS.filter(function (r) { return r.watchlist; }).length;
+  el.textContent = (ok ? '✓ board.json = this page' : '✗ DATA MISMATCH')
+    + ' — ' + ROWS.length + ' rows · rank 1 ' + r1.slug + ' ' + fmtUsd(r1.value)
+    + ' · data checksum ' + sum + (ok ? ' matches the build' : ' ≠ build ' + MODEL.rows_fnv)
+    + ' · board sha ' + MODEL.board_sha + '… · ' + wl + '/' + MODEL.n_watchlist + ' watchlist';
+  el.className = 'selfcheck ' + (ok ? 'ok' : 'bad');
+}
+// The launch clock's share as a fraction, for the expected value.
+function clockShare(p) {
+  var c = MODEL.clock[clockBucketIndex(p)];
+  return c[3] / c[2];
+}
+// EV (round 9, T-bill netting round 11): low-end value × same-age share ×
+// 1/100,000 farmer slice, minus gas and the forgone 4% T-bill yield on the
+// chosen deposit over ~7 weeks (~$5.38 on $1K, ~$53.85 on $10K). FARM ≥
+// $25/h, LOOK ≥ $5/h, else SKIP.
+function evFor(p, deposit) {
+  var evRule = MODEL.ev || { slice: 100000, hours: 4, farm_per_hour: 25, look_per_hour: 5 };
+  var dep = deposit === undefined ? 1000 : deposit;
+  var low = p.value / MODEL.oos_median_factor;
+  var share = clockShare(p);
+  var ev = low * share / evRule.slice;
+  var gas = gasHighNum(p.chains[0]);
+  var tbill = dep * 0.04 * 7 / 52;
+  var net = ev - gas - tbill;
+  var perHour = net / evRule.hours;
+  var be = (gas + tbill) / (low / evRule.slice);
+  var v = perHour >= evRule.farm_per_hour ? 'FARM' : perHour >= evRule.look_per_hour ? 'LOOK' : 'SKIP';
+  return { ev: ev, gas: gas, tbill: tbill, deposit: dep, net: net, perHour: perHour, be: be, verdict: v, share: share, low: low, rule: evRule };
+}
+function fmtSigned(n) {
+  var s = fmtUsd(Math.abs(n));
+  return (n < 0 ? '−' : '+') + s;
+}
+// Compact dollars for the peer caption: the peer's TVL and market cap come
+// from 2-decimal logs, so full-dollar figures would fake precision.
+function fmtBig(n) {
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+  return fmtUsd(n);
+}
+function farmPlan(p) {
   var cat = p.category || '';
   if (cat === 'Basis Trading') {
     return [
@@ -246,7 +310,7 @@ function farmSteps(p) {
 
 // --- rendering
 
-var state = { q: '', cat: '', minTvl: 0, verdict: '', sort: 'rank', wlOnly: false, sel: null };
+var state = { q: '', cat: '', minTvl: 0, verdict: '', sort: 'rank', wlOnly: false, sel: null, tab: 'board', deposit: 1000 };
 
 function filtered() {
   var list = ROWS.filter(function (r) {
@@ -270,7 +334,41 @@ function filtered() {
   return list;
 }
 
+// Tabs (round 11): board, traded anchors, set aside. Lists are plain lines.
+function renderTabs() {
+  var host = document.getElementById('tabs');
+  function btn(tab, label) {
+    return '<button class="tab' + (state.tab === tab ? ' on' : '') + '" data-tab="' + tab + '">' + label + '</button>';
+  }
+  host.innerHTML = btn('board', 'Board ' + ROWS.length) + btn('traded', 'Traded anchor ' + LISTS.traded.length) + btn('setAside', 'Set aside ' + LISTS.setAside.length);
+  host.querySelectorAll('button').forEach(function (b) {
+    b.addEventListener('click', function () { state.tab = b.getAttribute('data-tab'); render(); });
+  });
+}
+function renderLists() {
+  var rows = state.tab === 'traded' ? LISTS.traded : LISTS.setAside;
+  document.getElementById('list-rows').innerHTML = rows.map(function (r) {
+    return '<p>' + esc(r[1]) + ' <span class="slug">' + esc(r[0]) + '</span> — TVL ' + fmtUsd(r[2])
+      + (state.tab === 'traded' ? ' — mcap ' + fmtUsd(r[3]) : ' — ' + esc(r[3])) + '</p>';
+  }).join('');
+  document.getElementById('count-line').textContent = rows.length + (state.tab === 'traded' ? ' traded anchors shown.' : ' set-aside protocols shown.');
+}
+
 function render() {
+  renderTabs();
+  var boardEl = document.getElementById('board');
+  var listEl = document.getElementById('list-rows');
+  var controls = document.querySelector('.controls');
+  if (state.tab !== 'board') {
+    boardEl.hidden = true;
+    listEl.hidden = false;
+    controls.style.display = 'none';
+    renderLists();
+    return;
+  }
+  boardEl.hidden = false;
+  listEl.hidden = true;
+  controls.style.display = '';
   var list = filtered();
   var maxVal = ROWS.length ? ROWS[0].value : 1;
   var tb = document.getElementById('rows');
@@ -279,6 +377,8 @@ function render() {
       : '<td class="num ' + (r.change >= 0 ? 'up' : 'down') + '">' + fmtPct(r.change) + '</td>';
     var v = verdictFor(r);
     var vcls = v === 'FARM' ? 'v-farm' : v === 'WORTH A LOOK' ? 'v-look' : v === 'THIN' ? 'v-thin' : 'v-wait';
+    var ev = evFor(r);
+    var evcls = ev.verdict === 'FARM' ? 'v-farm' : ev.verdict === 'LOOK' ? 'v-look' : 'v-wait';
     var pct = Math.max(2, Math.round(100 * r.value / maxVal));
     return '<tr data-slug="' + esc(r.slug) + '"' + (state.sel === r.slug ? ' class="sel"' : '') + '>'
       + '<td class="num">' + r.rank + '</td>'
@@ -288,7 +388,10 @@ function render() {
       + chg
       + '<td class="num">' + fmtAge(r.age) + '</td>'
       + '<td class="num">' + clockRate(r) + '</td>'
+      + '<td class="num">' + Math.round(r.odds * 100) + '%</td>'
       + '<td class="num">' + fmtUsd(r.value) + '<span class="vbar"><i style="width:' + pct + '%"></i></span></td>'
+      + '<td class="num range">' + r.range[0] + '–' + r.range[4] + '</td>'
+      + '<td><span class="vchip ' + evcls + '">' + ev.verdict + '</span><br><span class="evh">' + fmtSigned(ev.perHour) + '/h</span></td>'
       + '<td><span class="vchip ' + vcls + '">' + v + '</span></td>'
       + '<td>' + (r.watchlist ? '<span class="badge">WATCHLIST</span>' : '') + '</td></tr>';
   }).join('');
@@ -297,6 +400,22 @@ function render() {
   tb.querySelectorAll('tr').forEach(function (tr) {
     tr.addEventListener('click', function () { showDetail(tr.getAttribute('data-slug')); });
   });
+}
+
+// EV box, re-rendered when the deposit selector changes. The board's EV
+// column always uses $1,000.
+function renderEv(r) {
+  var ev = evFor(r, state.deposit);
+  var eb = document.getElementById('d-ev');
+  eb.hidden = false;
+  eb.className = 'd-verdict ' + (ev.verdict === 'FARM' ? 'v-farm' : ev.verdict === 'LOOK' ? 'v-look' : 'v-wait');
+  eb.textContent = 'Expected value: ' + ev.verdict + ' — low-end ' + fmtUsd(ev.low)
+    + ' × ' + Math.round(ev.share * 100) + '% same-age share × 1/' + ev.rule.slice.toLocaleString()
+    + ' slice = ' + fmtUsd(ev.ev) + '; gas ' + fmtUsd(ev.gas) + ' + T-bill $'
+    + ev.tbill.toFixed(2) + ' on a ' + fmtUsd(ev.deposit) + ' deposit; net '
+    + fmtSigned(ev.net) + ' over ~' + ev.rule.hours + ' hours = ' + fmtSigned(ev.perHour)
+    + '/hour. Break-even needs a ' + (ev.be * 100).toFixed(1)
+    + '% launch chance; this cohort launches ' + Math.round(ev.share * 100) + '% of the time.';
 }
 
 function showDetail(slug) {
@@ -320,11 +439,21 @@ function showDetail(slug) {
     flag.hidden = true;
     flag.textContent = '';
   }
+  var sib = document.getElementById('d-sib');
+  var sibSlug = (MODEL.siblings || {})[r.slug];
+  if (sibSlug) {
+    sib.hidden = false;
+    sib.textContent = 'Sibling note: shares its first name-word with ' + sibSlug + ', whose token trades — information only. A shared word is not proof of one team, and it does not change the value.';
+  } else {
+    sib.hidden = true;
+    sib.textContent = '';
+  }
   var v = verdictFor(r);
   var vb = document.getElementById('d-verdict');
   vb.hidden = false;
   vb.className = 'd-verdict ' + (v === 'FARM' ? 'v-farm' : v === 'WORTH A LOOK' ? 'v-look' : v === 'THIN' ? 'v-thin' : 'v-wait');
   vb.textContent = verdictStep(r);
+  renderEv(r);
   var medAge = MODEL.median_age_days || 463;
   var clockTxt;
   if (r.noDate) {
@@ -337,20 +466,86 @@ function showDetail(slug) {
       + '; ' + clockRate(r) + ' of protocols listed ' + CLOCK_LABELS[clockBucketIndex(r)] + ' record a token.';
   }
   document.getElementById('d-clock').textContent = clockTxt;
+  var od = MODEL.odds || {};
+  document.getElementById('d-odds').textContent =
+    'Launch odds: ' + Math.round(r.odds * 100) + '% — a logistic fit on age, TVL and 7-day change'
+    + (od.heldout !== undefined ? ' (held out ' + Math.round(od.heldout * 100) + '% on ' + od.n + ' dated protocols, base rate ' + Math.round(od.base * 100) + '%)' : '')
+    + '. Odds, not a promise: a high-odds row with a low value still ranks low.';
+  document.getElementById('d-range').textContent =
+    'Rank #' + r.rank + ' — P10–P90 range ' + r.range[0] + '–' + r.range[4]
+    + ' (P25–P75 ' + r.range[1] + '–' + r.range[3] + ', median ' + r.range[2]
+    + ') across 200 refits of the fit, among the 340 clean pre-token protocols'
+    + (r.range[4] > 200 ? '; a P90 above 200 means this row can fall off the 200-row board.' : '.');
   var cr = r.noDate ? null : MODEL.clock[clockBucketIndex(r)][3] / MODEL.clock[clockBucketIndex(r)][2];
   var br = document.getElementById('d-break');
   br.innerHTML =
-    '<tr><td>TVL curve — base value from ' + fmtUsd(r.tvl) + ' TVL</td><td>' + fmtUsd(r.base) + '</td></tr>'
+    '<tr><td>TVL — input 1 of 3 the value follows from</td><td>' + fmtUsd(r.tvl) + '</td></tr>'
+    + '<tr><td>7-day growth — input 2 of 3</td><td>' + fmtPct(r.change) + '</td></tr>'
+    + '<tr><td>Days with no token — input 3 of 3</td><td>' + fmtAge(r.age) + '</td></tr>'
+    + '<tr><td>TVL curve — base value from ' + fmtUsd(r.tvl) + ' TVL</td><td>' + fmtUsd(r.base) + '</td></tr>'
     + '<tr><td>Category offset (' + esc(r.category || 'none') + ')</td><td>×' + r.catMult.toFixed(3) + '</td></tr>'
     + '<tr><td>Chain adjustment (' + r.nChains + ' chain' + (r.nChains > 1 ? 's' : '') + ')</td><td>×' + r.chainMult.toFixed(3) + '</td></tr>'
+    + '<tr><td>Growth multiplier — 7-day ' + fmtPct(r.change) + ', clamped to −60%/+120%, weight 0.5</td><td>×' + r.growthMult.toFixed(3) + '</td></tr>'
+    + '<tr><td>Maturity multiplier — ' + fmtAge(r.age) + ' with no token, 0.6–1.0</td><td>×' + r.maturityMult.toFixed(3) + '</td></tr>'
     + '<tr><td>Implied value per $1 of TVL</td><td>$' + (r.value / r.tvl).toFixed(3) + '</td></tr>'
     + '<tr><td>Clock-weighted value (implied × same-age token share)</td><td>' + (cr === null ? '—' : fmtUsd(r.value * cr)) + '</td></tr>'
     + '<tr><td><strong>Implied value</strong></td><td><strong>' + fmtUsd(r.value) + '</strong></td></tr>';
-  var steps = farmSteps(r);
+  var steps = farmPlan(r);
   document.getElementById('d-steps').innerHTML = steps.map(function (s) {
     return '<li>' + esc(s) + '</li>';
   }).join('');
+  document.getElementById('d-inputs').textContent =
+    'The three snapshot figures above are the ones the value follows from: base × growth × maturity — the house starter\u2019s chain at its own constants. Fitted as features, growth and age lose out-of-sample (×2.41 / ×2.44 vs the TVL-only ×2.28), so the chain is a criterion-2 reading, not a better fit.';
+  drawPeer(r);
   d.scrollIntoView({ block: 'nearest' });
+}
+
+// --- nearest-peer curve (round 9): the row against the comps that look like
+// it. Dots are the 79 comps' actual market caps against their TVL; the line
+// is the fitted median for this row's chains and category; the amber dot is
+// the nearest traded peer by TVL (hollow: where the model prices it), the
+// green dot this row's implied value.
+function drawPeer(r) {
+  var host = document.getElementById('d-peer');
+  var pts = MODEL.comp_points || [];
+  if (!host || !pts.length) return;
+  var b = MODEL.beta;
+  var logTvl = Math.log10(r.tvl);
+  function yAt(x) {
+    return Math.log10(r.base) + b[1] * (x - logTvl) + Math.log10(r.catMult * r.chainMult * r.growthMult * r.maturityMult);
+  }
+  var W = 920, H = 200, L = 56, R = 16, T = 12, B = 40;
+  var xs = pts.map(function (p) { return p[0]; }).concat([logTvl, r.peer.logTvl]);
+  var ys = pts.map(function (p) { return p[1]; }).concat([Math.log10(r.value), r.peer.logMcap, r.peer.logPred]);
+  var lo = Math.floor(Math.min.apply(null, xs.concat(ys)) * 2) / 2 - 0.5;
+  var hi = Math.ceil(Math.max.apply(null, xs.concat(ys)) * 2) / 2 + 0.5;
+  function sx(v) { return L + (v - lo) / (hi - lo) * (W - L - R); }
+  function sy(v) { return T + (1 - (v - lo) / (hi - lo)) * (H - T - B); }
+  var s = '';
+  s += '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Nearest traded peer curve">';
+  var g;
+  for (g = lo; g <= hi + 1e-9; g += 0.5) {
+    s += '<line x1="' + sx(g) + '" y1="' + T + '" x2="' + sx(g) + '" y2="' + (H - B) + '" class="grid"/>';
+    s += '<line x1="' + L + '" y1="' + sy(g) + '" x2="' + (W - R) + '" y2="' + sy(g) + '" class="grid"/>';
+    s += '<text x="' + sx(g) + '" y="' + (H - B + 18) + '" class="ax">' + g.toFixed(1) + '</text>';
+    s += '<text x="' + (L - 8) + '" y="' + (sy(g) + 4) + '" class="ax r">' + g.toFixed(1) + '</text>';
+  }
+  s += '<text x="' + ((W - L - R) / 2 + L) + '" y="' + (H - 6) + '" class="ax">log10(TVL in $)</text>';
+  s += '<text x="14" y="' + ((H - T - B) / 2 + T) + '" class="ax" transform="rotate(-90 14 ' + ((H - T - B) / 2 + T) + ')">log10(market cap in $)</text>';
+  s += '<line x1="' + sx(lo) + '" y1="' + sy(yAt(lo)) + '" x2="' + sx(hi) + '" y2="' + sy(yAt(hi)) + '" class="ident"/>';
+  pts.forEach(function (p) {
+    s += '<circle cx="' + sx(p[0]).toFixed(1) + '" cy="' + sy(p[1]).toFixed(1) + '" r="3" fill="#22d3ee" opacity="0.7"/>';
+  });
+  s += '<circle cx="' + sx(r.peer.logTvl).toFixed(1) + '" cy="' + sy(r.peer.logMcap).toFixed(1) + '" r="6" fill="#fbbf24"/>';
+  s += '<circle cx="' + sx(r.peer.logTvl).toFixed(1) + '" cy="' + sy(r.peer.logPred).toFixed(1) + '" r="4" fill="none" stroke="#fbbf24" stroke-width="2"/>';
+  s += '<circle cx="' + sx(logTvl).toFixed(1) + '" cy="' + sy(Math.log10(r.value)).toFixed(1) + '" r="7" fill="#4ade80"/>';
+  s += '</svg>';
+  s += '<p class="cap">Nearest traded peer by TVL: <strong>' + esc(r.peer.slug) + '</strong> — TVL '
+    + fmtBig(Math.pow(10, r.peer.logTvl)) + ', actual '
+    + fmtBig(Math.pow(10, r.peer.logMcap)) + ', model says '
+    + fmtBig(Math.pow(10, r.peer.logPred))
+    + '. The line is the fitted median for this row; the green dot is this row\'s implied value.</p>';
+  host.innerHTML = s;
 }
 
 // --- model panel
@@ -366,7 +561,7 @@ function fillModel() {
     + term(b[3], 'Ethereum')
     + term(b[4], 'Arbitrum')
     + term(b[5], 'Optimism')
-    + ' + category offset';
+    + ' + category offset — then value = base × growth × maturity';
   var parts = MODEL.oos_partitions || {};
   function range(key) {
     var vals = [];
@@ -382,21 +577,87 @@ function fillModel() {
   var wfText = wf.length ? ' Walk-forward backtest (train before the year, test the next): pooled ×' + wf[0].toFixed(2) + '/×' + wf[1].toFixed(2) + ' (' + wf[2].map(function (w) { return w[0] + ' ×' + w[3].toFixed(2); }).join(', ') + ' median).' : '';
   document.getElementById('formula-line').textContent = formula;
   var w = MODEL.oos_within || {};
+  var od = MODEL.odds || {};
+  var oddsTxt = '';
+  if (od.heldout !== undefined && od.heldout >= od.base + 0.05) {
+    oddsTxt = ' · Launch odds, held out ' + Math.round(od.heldout * 100) + '% — base rate ' + Math.round(od.base * 100) + '% (' + od.n + ' dated protocols)';
+  } else if (od.heldout !== undefined) {
+    oddsTxt = ' · Launch odds per row in the ODDS column (no accuracy headline: held-out did not clearly beat the base rate)';
+  }
   document.getElementById('oos-line').innerHTML =
     'Blind out-of-sample (5-fold, ' + MODEL.oos_n + ' held-out comps): median error <b>×' + MODEL.oos_median_factor.toFixed(2)
-    + '</b> · ' + (w.x2 || 0) + '% within ×2 · p80 ×' + MODEL.oos_p80_factor.toFixed(2);
+    + '</b> · ' + (w.x2 || 0) + '% within ×2 · p80 ×' + MODEL.oos_p80_factor.toFixed(2)
+    + ' · leave-one-out ×' + (parts.loo ? parts.loo.median.toFixed(2) : '—')
+    + ' · time-split ×' + ts.fwd_median.toFixed(2) + '/×' + ts.rev_median.toFixed(2)
+    + ' · walk-fwd ×' + (wf.length ? wf[0].toFixed(2) : '—') + oddsTxt;
   document.getElementById('fit-line').innerHTML =
-    '<dt>Comps</dt><dd>' + MODEL.n_comps + ' protocols with a token (market cap ≥ $1M; 13 dead or micro-cap records below $1M are not comparables)</dd>'
+    '<dt>Comps</dt><dd>' + MODEL.n_comps + ' protocols with a token (market cap ≥ $1M; 13 below $1M are not comparables)</dd>'
     + '<dt>Fit</dt><dd>' + esc(formula) + '</dd>'
+    + '<dt>Functions</dt><dd>predictWith() builds each value · farmPlan() builds each plan · compareModels() runs the validation · ablate() runs the one-term removals</dd>'
     + '<dt>Method</dt><dd>median regression (least absolute deviations, IRLS)</dd>'
-    + '<dt>Not in the formula</dt><dd>age and 7-day growth — both tested, both worse out-of-sample (×2.44 and ×2.41 vs ×2.28); age drives the launch clock and the LONG WAIT verdict instead</dd>'
-    + '<dt>Out-of-sample</dt><dd>median error ×' + MODEL.oos_median_factor.toFixed(2)
+    + '<dt>Chain</dt><dd>value = base × growth × maturity — growth = 1 + clamp(7-day change, −60%, +120%) × 0.5; maturity = 0.6 + min(days with no token, 1095) / 1095 × 0.4 (unknown age: 1 year). The house\u2019s own constants, not fitted.</dd>'
+    + '<dt>What the chain costs</dt><dd>TVL-only base ×2.28 (5-fold median) vs deployed chain ×' + MODEL.oos_median_factor.toFixed(2) + ' — a criterion-2 reading, not a better fit; age also drives the launch clock and the LONG WAIT verdict</dd>'
+    + '<dt>Out-of-sample</dt><dd>median ×' + MODEL.oos_median_factor.toFixed(2)
     + ', p80 ×' + MODEL.oos_p80_factor.toFixed(2) + ' (' + MODEL.oos_n + ' held-out comps, 5-fold); '
     + (w.x2 || 0) + '% within ×2, ' + (w.x5 || 0) + '% within ×5, ' + (w.x10 || 0) + '% within ×10</dd>'
-    + '<dt>Stability</dt><dd>same procedure under 5 different partitions incl. leave-one-out: median ' + range('median') + ', p80 ' + range('p80') + ' — no cherry-picked split. Time-split (train before ' + ts.cut + ', test the ' + ts.n + ' later ones): ×' + ts.fwd_median.toFixed(2) + '/×' + ts.fwd_p80.toFixed(2) + '; reverse ×' + ts.rev_median.toFixed(2) + '/×' + ts.rev_p80.toFixed(2) + '. Bootstrap (200×): TVL slope ' + bs.slope_lo.toFixed(2) + '–' + bs.slope_hi.toFixed(2) + '; OOS median ×' + bs.oos_lo.toFixed(2) + '–×' + bs.oos_hi.toFixed(2) + ' (90% intervals)' + wfText + '</dd>';
+    + '<dt>Stability</dt><dd>5 partitions incl. leave-one-out: median ' + range('median') + ', p80 ' + range('p80') + ' — no cherry-picked split. Time-split (before ' + ts.cut + ', test the ' + ts.n + ' later ones): ×' + ts.fwd_median.toFixed(2) + '/×' + ts.fwd_p80.toFixed(2) + '; reverse ×' + ts.rev_median.toFixed(2) + '/×' + ts.rev_p80.toFixed(2) + '. Bootstrap (200×): TVL slope ' + bs.slope_lo.toFixed(2) + '–' + bs.slope_hi.toFixed(2) + '; OOS median ×' + bs.oos_lo.toFixed(2) + '–×' + bs.oos_hi.toFixed(2) + wfText + '</dd>';
   document.getElementById('meta-line').textContent =
     MODEL.n_board + ' rows · ' + MODEL.n_watchlist + '/' + MODEL.n_watchlist + ' watchlist · '
     + 'snapshot ' + MODEL.as_of + ' · ' + MODEL.n_comps + ' comps';
+}
+
+function fillAccounting() {
+  var a = MODEL.accounting;
+  var el = document.getElementById('acct-line');
+  if (!a || !el) return;
+  el.innerHTML = '<b>Accounting — all 758 protocols:</b> ' + a.with_mcap + ' with a market cap ('
+    + a.comps + ' comps · ' + a.below_1m + ' below $1M · ' + a.excluded_with_mcap + ' excluded) · '
+    + a.no_mcap + ' without (' + a.clean_pre + ' clean candidates · ' + a.excluded_pre + ' excluded) — board '
+    + a.board + ' (' + a.watchlist + ' watchlist + ' + (a.board - a.watchlist) + ') · '
+    + a.below_board + ' clean candidates below the board · ' + a.record_token + ' record a token, '
+    + a.no_token_record + ' do not.';
+}
+// KPI strip + range audit (round 11), computed live from the page's rows.
+function fillKpi() {
+  var el = document.getElementById('kpi-line');
+  if (!el) return;
+  var total = 0, f = 0, l = 0, s = 0, best = null, wl = 0;
+  ROWS.forEach(function (r) {
+    total += r.value;
+    var v = evFor(r, 1000);
+    if (v.verdict === 'FARM') f++; else if (v.verdict === 'LOOK') l++; else s++;
+    if (r.watchlist) { wl++; if (!best || v.perHour > best.p) best = { p: v.perHour, slug: r.slug }; }
+  });
+  el.innerHTML = '<b>Total ' + fmtBig(total) + '</b> · best net <b>' + fmtSigned(best.p)
+    + '/h</b> on the watchlist (' + best.slug + ') · OOS median ×' + MODEL.oos_median_factor.toFixed(2)
+    + ' · EV verdicts FARM ' + f + ' / LOOK ' + l + ' / SKIP ' + s
+    + ' · watchlist ' + wl + '/' + MODEL.n_watchlist;
+}
+function fillValid() {
+  var el = document.getElementById('valid-line');
+  if (!el) return;
+  var a = MODEL.range_audit || {};
+  var st = MODEL.stability || {};
+  var auditTxt = '';
+  if (a.n) {
+    auditTxt = 'Is the printed range honest? ' + a.p25_75 + ' of ' + a.n + ' real market caps land in the P25–P75 refit band, '
+      + a.p10_90 + ' of ' + a.n + ' in the P10–P90 band (nominal ' + Math.round(a.n / 2) + ' and ' + Math.round(a.n * 0.8) + ') — '
+      + 'the bands are narrow: they measure the fit\u2019s wobble, not the pricing error. ';
+  }
+  var stabTxt = '';
+  if (st.ablations) {
+    stabTxt = 'Top 20 kept: ' + st.ablations.map(function (x) { return x[0] + ' ' + x[1] + '/20'; }).join(' · ')
+      + ' · median ' + st.refit_top20_median + '/20 over 200 refits (min ' + st.refit_top20_min + ', max ' + st.refit_top20_max + ').';
+  }
+  el.textContent = auditTxt + stabTxt;
+}
+function fillAblation() {
+  var ab = MODEL.ablation || [];
+  var el = document.getElementById('ablation-line');
+  if (!el) return;
+  el.innerHTML = '<b>Ablation — 5-fold median of the deployed formula and tested alternatives:</b> '
+    + ab.map(function (x) { return x[0] + ' ×' + x[1].toFixed(2); }).join(' · ')
+    + '. The TVL-only base is the most accurate fit; the chain is deployed because criterion 2 names all three inputs — a criterion-2 reading, not a better fit.';
 }
 
 // --- launch clock table (MODEL.clock: token-share by age cohort; the last
@@ -419,7 +680,7 @@ function drawCalibration() {
   var host = document.getElementById('calib');
   var pts = MODEL.calib || [];
   if (!pts.length) { host.innerHTML = ''; return; }
-  var W = 920, H = 300, L = 56, R = 16, T = 12, B = 40;
+  var W = 920, H = 240, L = 56, R = 16, T = 12, B = 40;
   var xs = pts.map(function (p) { return p[0]; });
   var ys = pts.map(function (p) { return p[1]; });
   var lo = Math.floor(Math.min.apply(null, xs.concat(ys)) * 2) / 2;
@@ -450,8 +711,7 @@ function drawCalibration() {
   document.getElementById('calib-note').textContent =
     'Each dot is one of the ' + pts.length + ' comps, priced by a model that never saw it (5-fold). '
     + 'The diagonal is perfect prediction; the dashed band is the median error (±×' + MODEL.oos_median_factor.toFixed(2)
-    + ') — ' + (w.x2 || 0) + '% within ×2, ' + (w.x10 || 0)
-    + '% within ×10. Dots above the line are tokens worth far more than their TVL suggests (worst: rain ×363).';
+    + '). Dots above the line are tokens worth far more than their TVL suggests (worst: rain ×363).';
 }
 
 // --- wire-up
@@ -472,6 +732,13 @@ function drawCalibration() {
   document.getElementById('verdict').addEventListener('change', function (e) { state.verdict = e.target.value; render(); });
   document.getElementById('sort').addEventListener('change', function (e) { state.sort = e.target.value; render(); });
   document.getElementById('wl-only').addEventListener('change', function (e) { state.wlOnly = e.target.checked; render(); });
+  document.querySelectorAll('#dep-sel button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state.deposit = Number(b.getAttribute('data-dep'));
+      document.querySelectorAll('#dep-sel button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      if (state.sel) renderEv(ROWS.filter(function (r) { return r.slug === state.sel; })[0]);
+    });
+  });
   var params = new URLSearchParams(window.location.search);
   if (params.get('q')) { state.q = params.get('q'); document.getElementById('q').value = state.q; }
   if (params.get('category')) { state.cat = params.get('category'); sel.value = state.cat; }
@@ -480,9 +747,14 @@ function drawCalibration() {
   if (params.get('watchlist')) { state.wlOnly = true; document.getElementById('wl-only').checked = true; }
   if (params.get('verdict')) { state.verdict = params.get('verdict'); document.getElementById('verdict').value = state.verdict; }
   fillModel();
+  fillKpi();
+  fillValid();
+  fillAccounting();
+  fillAblation();
+  selfCheck();
   drawCalibration();
   drawClock();
   render();
   if (params.get('detail')) showDetail(params.get('detail'));
-  window.__radar = { rows: ROWS, model: MODEL, farmSteps: farmSteps };
+  window.__radar = { rows: ROWS, model: MODEL, farmPlan: farmPlan };
 })();
